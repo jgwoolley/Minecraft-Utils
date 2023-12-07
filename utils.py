@@ -1,6 +1,64 @@
+'''
+This is where the module documentation goes 
+'''
+
 import pathlib, gzip, datetime, json, re, argparse, sqlite3
 from io import TextIOWrapper
 from typing import Union, Text, AnyStr, Optional, Match, Iterable, Any
+from dataclasses import dataclass
+
+@dataclass
+class BlockCoordinate:
+    x: int
+    y: int
+    z: int
+
+@dataclass
+class ChunkCoordinate:
+    x: int
+    y: int
+    z: int
+
+    def getMinBlock(self):
+        return BlockCoordinate(
+            x = self.x << 4,
+            y = self.y << 4,
+            z = self.z << 4,
+        )
+
+    def getMaxBlock(self):
+        return BlockCoordinate(
+            x = (self.x + 1 << 4) - 1,
+            y = (self.y + 1 << 4) - 1,
+            z = (self.z + 1 << 4) - 1,
+        )
+
+@dataclass
+class RegionCoordinate:
+    x: int
+    z: int
+
+    def getMinChunk(self):
+        return ChunkCoordinate(
+            x = self.x << 5,
+            y = 0,
+            z = self.z << 5,
+        )
+
+    def getMaxChunk(self):
+        return ChunkCoordinate(
+            x = (self.x + 1 << 5) - 1,
+            y = 15,
+            z = (self.z + 1 << 5) - 1,
+        )
+
+    def getMinBlock(self):
+        coords = self.getMinChunk()
+        return coords.getMinBlock()
+
+    def getMaxBlock(self):
+        coords = self.getMaxChunk()
+        return coords.getMaxBlock()
 
 class Parser:
     def __init__(self, name: str, pattern: str, create_sql: str, insert_sql: str):
@@ -175,8 +233,49 @@ def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_
                 )
         con.commit()
 
-def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+regions_pattern = re.compile("r\.(?P<region_x>-?\d+)\.(?P<region_z>-?\d+)\.mca")
+
+def parse_regions(database: Union[bytes, Text], world_path: pathlib.Path, run_date: datetime.datetime):
+    region_path = world_path / 'region'
+
+    with sqlite3.connect(database=database) as con:
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_REGIONS(run_date timestamp, path TEXT, region_x INTEGER, region_z INTEGER, min_x INTEGER, min_y INTEGER, min_z INTEGER, max_x INTEGER, max_y INTEGER, max_z INTEGER)")
+        con.commit()
+
+        for path in region_path.iterdir():
+            m = regions_pattern.match(path.name)
+            if not m:
+                continue
+            groups = m.groupdict()
+
+            region = RegionCoordinate(
+                x = int(groups["region_x"]),
+                z = int(groups["region_z"]),
+            )
+
+            min_block = region.getMinBlock() 
+            max_block = region.getMaxBlock()
+
+            con.execute(
+                "INSERT INTO MINECRAFT_SERVER_REGIONS VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                    run_date, # run_date
+                    str(path), # path
+                    region.x, # region_x
+                    region.z, # region_z
+                    min_block.x, # min_x 
+                    min_block.y, # min_y 
+                    min_block.z, # min_z
+                    max_block.x, # max_x 
+                    max_block.y, # max_y 
+                    max_block.z, # max_z
+                ),
+            )
+        con.commit()
+
+def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
     path = input_path / 'server.properties'
+
+    level_name = 'world'
 
     with sqlite3.connect(database=database) as con:
         con.execute("CREATE TABLE IF NOT EXISTS SERVER_PROPERTIES(run_date timestamp, key, value)")
@@ -187,6 +286,8 @@ def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_
                 if line.startswith("#"):
                     continue
                 key, value = line.split("=", 1)
+                if key == "level-name":
+                    level_name = value.strip()
                 con.execute(
                     "INSERT INTO SERVER_PROPERTIES VALUES(?, ?, ?)", (
                         run_date,
@@ -195,6 +296,9 @@ def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_
                     )
                 )
         con.commit()
+
+    world_path = input_path / level_name
+    parse_regions(database=database, world_path=world_path, run_date=run_date)
 
 def write_run(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
     with sqlite3.connect(database=database) as con:
@@ -239,6 +343,7 @@ def main(args=None, namespace=None):
     parse_ops(database=database, input_path=input_path, run_date=run_date)
     parse_whitelist(database=database, input_path=input_path, run_date=run_date)
     parse_usercache(database=database, input_path=input_path, run_date=run_date)
+    parse_server_properties(database=database, input_path=input_path, run_date=run_date)
     parse_logs(database=database, input_path=input_path, run_date=run_date)
 
 if __name__ == "__main__":

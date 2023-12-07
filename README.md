@@ -20,3 +20,12 @@ SELECT DISTINCT
 	LOGS_LOGGED_IN.player
 FROM LOGS_LOGGED_IN;
 ```
+
+## TODO
+
+- Have the documentation auto generate?
+
+``` console
+python -m pydoc -w util
+wrote utils.html
+```
