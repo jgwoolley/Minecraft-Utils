@@ -1,5 +1,7 @@
 # Minecraft Utilities
 
+[See PyDocs](https://jgwoolley.github.io/Minecraft-Utils/utils.html)
+
 Running [utils.py](utils.py) will produce a sqlite3 database with information on a Minecraft server, primarily based on log files.
 
 ``` console
@@ -24,9 +26,3 @@ FROM LOGS_LOGGED_IN;
 ## TODO
 
 - LOGS_MOVED_TOO_QUICKLY has coordinates, but what do they mean??? They don't look like regular coords. Maybe chunk?
-- Have the documentation auto generate?
-
-``` console
-python -m pydoc -w util
-wrote utils.html
-```
