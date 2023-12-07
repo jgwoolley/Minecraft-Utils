@@ -23,6 +23,7 @@ FROM LOGS_LOGGED_IN;
 
 ## TODO
 
+- LOGS_MOVED_TOO_QUICKLY has coordinates, but what do they mean??? They don't look like regular coords. Maybe chunk?
 - Have the documentation auto generate?
 
 ``` console
