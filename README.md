@@ -11,3 +11,12 @@ options:
   -i INPUT, --input INPUT
   -o OUTPUT, --output OUTPUT
 ```
+
+## Some example SQL querries
+
+```sql
+SELECT DISTINCT
+	LOGS_LOGGED_IN.IP,
+	LOGS_LOGGED_IN.player
+FROM LOGS_LOGGED_IN;
+```

@@ -196,9 +196,25 @@ def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_
                 )
         con.commit()
 
-def parse_logs(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
-    logs_path = input_path / 'logs'
+def write_run(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+    with sqlite3.connect(database=database) as con:
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_RUN(run_date timestamp)")
+        con.commit()
+        con.execute(
+            "INSERT INTO MINECRAFT_SERVER_RUN VALUES(?)", (
+                run_date,
+            )
+        )
 
+        con.commit()
+
+def parse_logs(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+    with sqlite3.connect(database=database) as con:
+        for parser in parsers:
+            parser.create(con)
+        con.commit()
+
+    logs_path = input_path / 'logs'
     for log_path in logs_path.iterdir():
         if log_path.name.endswith(".log"):
             with log_path.open('rt') as log_file:
@@ -219,11 +235,7 @@ def main(args=None, namespace=None):
 
     run_date = datetime.datetime.now()
 
-    with sqlite3.connect(database=database) as con:
-        for parser in parsers:
-            parser.create(con)
-        con.commit()
-
+    write_run(database=database, input_path=input_path, run_date=run_date)
     parse_ops(database=database, input_path=input_path, run_date=run_date)
     parse_whitelist(database=database, input_path=input_path, run_date=run_date)
     parse_usercache(database=database, input_path=input_path, run_date=run_date)
