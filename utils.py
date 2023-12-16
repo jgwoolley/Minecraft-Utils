@@ -82,42 +82,42 @@ parsers = [
     Parser(
         name='logged_in',
         pattern='(?P<player>.+)\[\/(?P<ip>\d+\.\d+.\d+.\d+):(?P<port>\d+)\] logged in with entity id (?P<entityid>\d+) at \((?P<x>-?\d+.\d+), (?P<y>-?\d+.\d+), (?P<z>-?\d+.\d+)\)',
-        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LOGGED_IN(run_date timestamp, log_path, line, end_line, log_datetime timestamp, level, player, ip, port, entityid, x, y, z)",
+        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LOGGED_IN(source_id, log_path, line, end_line, log_datetime timestamp, level, player, ip, port, entityid, x, y, z)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_LOGGED_IN VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ),
     Parser(
         name='joined_game',
         pattern='(?P<player>.+) joined the game',
-        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_JOINED_GAME(run_date timestamp, log_path, line, end_line, log_datetime timestamp, level, player)",
+        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_JOINED_GAME(source_id, log_path, line, end_line, log_datetime timestamp, level, player)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_JOINED_GAME VALUES(?, ?, ?, ?, ?, ?, ?)",
     ),
     Parser(
         name='left_game',
         pattern='(?P<player>.+) left the game',
-        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LEFT_GAME(run_date timestamp, log_path, line, end_line, log_datetime timestamp, level, player)",
+        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LEFT_GAME(source_id, log_path, line, end_line, log_datetime timestamp, level, player)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_LEFT_GAME VALUES(?, ?, ?, ?, ?, ?, ?)",
     ),
     Parser(
         name='lost_connection',
         pattern='(?P<player>.+) lost connection: Disconnected',
-        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LOST_CONNECTION(run_date timestamp, log_path, line, end_line, log_datetime timestamp, level, player)",
+        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LOST_CONNECTION(source_id, log_path, line, end_line, log_datetime timestamp, level, player)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_LOST_CONNECTION VALUES(?, ?, ?, ?, ?, ?, ?)",
     ),
     Parser(
         name='uuid_player',
         pattern='UUID of player (?P<player>.+) is (?P<uuid>[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12})',
-        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_UUID_PLAYER(run_date timestamp, log_path, line, end_line, log_datetime timestamp, level, player, uuid)",
+        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_UUID_PLAYER(source_id, log_path, line, end_line, log_datetime timestamp, level, player, uuid)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_UUID_PLAYER VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
     ),
     Parser(
         name='moved_quickly',
         pattern='(?P<player>.+) moved too quickly! (?P<x>-?\d+.\d+),(?P<y>-?\d+.\d+),(?P<z>-?\d+.\d+)',
-        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_MOVED_TOO_QUICKLY(run_date timestamp, log_path, line, end_line, log_datetime timestamp, level, player, x, y, z)",
+        create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_MOVED_TOO_QUICKLY(source_id, log_path, line, end_line, log_datetime timestamp, level, player, x, y, z)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_MOVED_TOO_QUICKLY VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
 ]
 
-def read_line(con: sqlite3.Connection, log_path: pathlib.Path, line: str, run_date: datetime.datetime):
+def read_line(con: sqlite3.Connection, log_path: pathlib.Path, line: str, source_id: int):
     if not line[0] == "[":
         return
     
@@ -139,7 +139,7 @@ def read_line(con: sqlite3.Connection, log_path: pathlib.Path, line: str, run_da
             continue
         
         parameters = [
-            run_date, # run_date
+            source_id, # source_id
             str(log_path), # log_path
             line, # line
             end_line, # end_line
@@ -155,22 +155,22 @@ def read_line(con: sqlite3.Connection, log_path: pathlib.Path, line: str, run_da
             parameters=parameters,
         )
 
-def parse(database: Union[bytes, Text], log_path: pathlib.Path, log_file: TextIOWrapper, run_date: datetime.datetime):
+def parse(database: Union[bytes, Text], log_path: pathlib.Path, log_file: TextIOWrapper, source_id: int):
     with sqlite3.connect(database=database) as con:
         for line in log_file.readlines():
             data = read_line(
-                run_date = run_date,
+                source_id = source_id,
                 con = con, 
                 log_path = log_path, 
                 line= line
             )
             con.commit()
 
-def parse_ops(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+def parse_ops(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     path = input_path / 'ops.json'
 
     with sqlite3.connect(database=database) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_OPS(run_date timestamp, uuid, name, level, bypassesPlayerLimit)")
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_OPS(source_id, uuid, name, level, bypassesPlayerLimit)")
         con.commit()
 
         print(f"Parsing {path}")
@@ -178,7 +178,7 @@ def parse_ops(database: Union[bytes, Text], input_path: pathlib.Path, run_date: 
             for player in json.load(fp):
                 con.execute(
                     "INSERT INTO MINECRAFT_SERVER_OPS VALUES(?, ?, ?, ?, ?)", (
-                        run_date,
+                        source_id,
                         player["uuid"],
                         player["name"],
                         player["level"],
@@ -187,11 +187,11 @@ def parse_ops(database: Union[bytes, Text], input_path: pathlib.Path, run_date: 
                 )
         con.commit()
 
-def parse_whitelist(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+def parse_whitelist(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     path = input_path / 'whitelist.json'
 
     with sqlite3.connect(database=database) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_WHITELIST(run_date timestamp, uuid, name)")
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_WHITELIST(source_id, uuid, name)")
         con.commit()
 
         print(f"Parsing {path}")
@@ -199,18 +199,18 @@ def parse_whitelist(database: Union[bytes, Text], input_path: pathlib.Path, run_
             for player in json.load(fp):
                 con.execute(
                     "INSERT INTO MINECRAFT_SERVER_WHITELIST VALUES(?, ?, ?)", (
-                        run_date,
+                        source_id,
                         player["uuid"],
                         player["name"],
                     ),
                 )
         con.commit()
 
-def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     path = input_path / 'usercache.json'
 
     with sqlite3.connect(database=database) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_USERCACHE(run_date timestamp, uuid, name, expiresOn)")
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_USERCACHE(source_id, uuid, name, expiresOn)")
         con.commit()
 
         print(f"Parsing {path}")
@@ -218,7 +218,7 @@ def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_
             for player in json.load(fp):
                 con.execute(
                     "INSERT INTO MINECRAFT_SERVER_USERCACHE VALUES(?, ?, ?, ?)", (
-                        run_date,
+                        source_id,
                         player["uuid"],
                         player["name"],
                         player["expiresOn"],
@@ -228,11 +228,11 @@ def parse_usercache(database: Union[bytes, Text], input_path: pathlib.Path, run_
 
 regions_pattern = re.compile("r\.(?P<region_x>-?\d+)\.(?P<region_z>-?\d+)\.mca")
 
-def parse_regions(database: Union[bytes, Text], world_path: pathlib.Path, run_date: datetime.datetime):
+def parse_regions(database: Union[bytes, Text], world_path: pathlib.Path, source_id: int):
     region_path = world_path / 'region'
 
     with sqlite3.connect(database=database) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_REGIONS(run_date timestamp, path TEXT, region_x INTEGER, region_z INTEGER, min_x INTEGER, min_y INTEGER, min_z INTEGER, max_x INTEGER, max_y INTEGER, max_z INTEGER)")
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_REGIONS(source_id, path TEXT, region_x INTEGER, region_z INTEGER, min_x INTEGER, min_y INTEGER, min_z INTEGER, max_x INTEGER, max_y INTEGER, max_z INTEGER)")
         con.commit()
 
         print(f"Parsing {region_path}")
@@ -252,7 +252,7 @@ def parse_regions(database: Union[bytes, Text], world_path: pathlib.Path, run_da
 
             con.execute(
                 "INSERT INTO MINECRAFT_SERVER_REGIONS VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
-                    run_date, # run_date
+                    source_id, # source_id
                     str(path), # path
                     region.x, # region_x
                     region.z, # region_z
@@ -266,13 +266,13 @@ def parse_regions(database: Union[bytes, Text], world_path: pathlib.Path, run_da
             )
         con.commit()
 
-def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     path = input_path / 'server.properties'
 
     level_name = 'world'
 
     with sqlite3.connect(database=database) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SERVER_PROPERTIES(run_date timestamp, key, value)")
+        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SERVER_PROPERTIES(source_id, key, value)")
         con.commit()
 
         print(f"Parsing {path}")
@@ -285,7 +285,7 @@ def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Pa
                     level_name = value.strip()
                 con.execute(
                     "INSERT INTO MINECRAFT_SERVER_SERVER_PROPERTIES VALUES(?, ?, ?)", (
-                        run_date,
+                        source_id,
                         key,
                         value,
                     )
@@ -293,22 +293,26 @@ def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Pa
         con.commit()
 
     world_path = input_path / level_name
-    parse_regions(database=database, world_path=world_path, run_date=run_date)
+    parse_regions(database=database, world_path=world_path, source_id=source_id)
 
-def write_run(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+def write_source(database: Union[bytes, Text], input_path: pathlib.Path):
+    run_date = datetime.datetime.now()
+
     with sqlite3.connect(database=database) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_RUN(run_date timestamp, input_path TEXT)")
+        cur = con.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SOURCE(run_date timestamp, input_path TEXT)")
         con.commit()
-        con.execute(
-            "INSERT INTO MINECRAFT_SERVER_RUN VALUES(?, ?)", (
+        cur.execute(
+            "INSERT INTO MINECRAFT_SERVER_SOURCE VALUES(?, ?)", (
                 run_date,
                 str(input_path),
             )
         )
-
         con.commit()
 
-def parse_logs(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+        return cur.lastrowid
+
+def parse_logs(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     with sqlite3.connect(database=database) as con:
         for parser in parsers:
             parser.create(con)
@@ -320,15 +324,15 @@ def parse_logs(database: Union[bytes, Text], input_path: pathlib.Path, run_date:
     for log_path in logs_path.iterdir():
         if log_path.name.endswith(".log"):
             with log_path.open('rt') as log_file:
-                parse(database=database, log_path=log_path, log_file=log_file, run_date=run_date)
+                parse(database=database, log_path=log_path, log_file=log_file, source_id=source_id)
             continue
 
         if log_path.name.endswith(".log.gz"):            
             with gzip.open(log_path, 'rt') as log_file:
-                parse(database=database, log_path=log_path, log_file=log_file, run_date=run_date)
+                parse(database=database, log_path=log_path, log_file=log_file, source_id=source_id)
             continue
 
-def parse_sessions(database: Union[bytes, Text], input_path: pathlib.Path, run_date: datetime.datetime):
+def parse_sessions(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     players = list()
 
     print(f"Parsing sessions")
@@ -343,28 +347,34 @@ def parse_sessions(database: Union[bytes, Text], input_path: pathlib.Path, run_d
         login_times = list()
         with sqlite3.connect(database=database, detect_types=sqlite3.PARSE_DECLTYPES) as con:
             cur = con.cursor()
-            res = cur.execute("SELECT log_datetime FROM MINECRAFT_SERVER_LOGS_LOGGED_IN WHERE player = ? AND run_date = ? ORDER BY log_datetime", [player, run_date])
+            res = cur.execute("SELECT log_datetime, rowid FROM MINECRAFT_SERVER_LOGS_LOGGED_IN WHERE player = ? AND source_id = ? ORDER BY log_datetime", [player, source_id])
             for row in res.fetchall():
-                login_times.append(row[0])
+                login_times.append((row[0], row[1]))
             cur.close()
 
         left_times = list()
         with sqlite3.connect(database=database, detect_types=sqlite3.PARSE_DECLTYPES) as con:
             cur = con.cursor()
-            res = cur.execute("SELECT log_datetime FROM MINECRAFT_SERVER_LOGS_LEFT_GAME WHERE player = ? AND run_date = ? ORDER BY log_datetime", (player, run_date))
+            res = cur.execute("SELECT log_datetime, rowid FROM MINECRAFT_SERVER_LOGS_LEFT_GAME WHERE player = ? AND source_id = ? ORDER BY log_datetime", (player, source_id))
             for row in res.fetchall():
-                left_times.append(row[0])
+                left_times.append((row[0], row[1]))
             cur.close()
 
         with sqlite3.connect(database=database) as con:
-            con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SESSION(run_date timestamp, player, left_time timestamp, login_time timestamp, duration)")
+            con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SESSION(source_id, player, left_id, login_id, left_time timestamp, login_time timestamp, duration)")
             con.commit()
             print(f"For {player}, found {len(login_times)} login time(s), {len(left_times)} left time(s)")
-            for login_time, left_time in zip(login_times, left_times):
+            for (login_time, login_id), (left_time, left_id) in zip(login_times, left_times):
                 duration = left_time - login_time
                 con.execute(
-                    "INSERT INTO MINECRAFT_SERVER_SESSION VALUES(?, ?, ?, ?, ?)", (
-                        run_date, player, left_time, login_time, str(duration),
+                    "INSERT INTO MINECRAFT_SERVER_SESSION VALUES(?, ?, ?, ?, ?, ?, ?)", (
+                        source_id, 
+                        player, 
+                        left_id,
+                        login_id,
+                        left_time, 
+                        login_time, 
+                        str(duration),
                     )
                 )
                 con.commit()
@@ -386,16 +396,16 @@ def main(args=None, namespace=None):
     database = args.output
     input_path = pathlib.Path(args.input)
 
-    run_date = datetime.datetime.now()
-
-    write_run(database=database, input_path=input_path, run_date=run_date)
-    parse_ops(database=database, input_path=input_path, run_date=run_date)
-    parse_whitelist(database=database, input_path=input_path, run_date=run_date)
-    parse_usercache(database=database, input_path=input_path, run_date=run_date)
-    parse_server_properties(database=database, input_path=input_path, run_date=run_date)
-    parse_logs(database=database, input_path=input_path, run_date=run_date)
-    # This does not work
-    # parse_sessions(database=database, input_path=input_path, run_date=run_date)
+    source_id = write_source(database=database, input_path=input_path)
+    for parse in [
+        parse_ops, 
+        parse_whitelist, 
+        parse_usercache, 
+        parse_server_properties, 
+        parse_logs,
+        # parse_sessions,
+    ]:
+        parse(database=database, input_path=input_path, source_id=source_id)
 
 if __name__ == "__main__":
     main()
