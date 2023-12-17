@@ -396,64 +396,74 @@ def parse_crash_reports(database: Union[bytes, Text], input_path: pathlib.Path, 
 
                     con.commit()
 
-# TODO: Create a events table? and then join. Most are negative now...
+SESSION_SELECT_SQL = '''
+SELECT
+    source_id,
+	rowid, 
+	log_datetime,
+	"MINECRAFT_SERVER_LOGS_LOGGED_IN" as table_type,
+    "joined" as type,
+	player
+FROM
+	MINECRAFT_SERVER_LOGS_LOGGED_IN
+UNION
+SELECT
+    source_id,
+	rowid, 
+	log_datetime,
+	"MINECRAFT_SERVER_LOGS_LEFT_GAME" as table_type,
+    "left" as type,
+	player
+FROM
+	MINECRAFT_SERVER_LOGS_LEFT_GAME
+UNION
+SELECT
+    source_id,
+	rowid, 
+	log_datetime,
+	"MINECRAFT_SERVER_CRASH_REPORTS_PLAYER_DETAILS" as table_type,
+    "left" as type,
+	player_name as player
+FROM
+	MINECRAFT_SERVER_CRASH_REPORTS_PLAYER_DETAILS
+WHERE source_id = ?
+ORDER BY player, log_datetime
+'''
+
 def parse_sessions(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     players = list()
 
     print(f"Parsing sessions")
 
-    with sqlite3.connect(database=database) as con:
+    with sqlite3.connect(database=database, detect_types=sqlite3.PARSE_DECLTYPES) as con:
         cur = con.cursor()
-        res = cur.execute("SELECT DISTINCT player FROM MINECRAFT_SERVER_LOGS_LOGGED_IN")
+        cur.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SESSIONS(source_id, player, left_id, login_id, left_time timestamp, login_time timestamp, left_type, login_type, duration)")
+        con.commit()
+
+        cur_player, login_id, login_time, login_type = None, None, None, None
+
+        res = cur.execute(SESSION_SELECT_SQL, [source_id])
         for row in res.fetchall():
-            players.append(row[0])
-    
-    for player in players:
-        login_times = list()
-        with sqlite3.connect(database=database, detect_types=sqlite3.PARSE_DECLTYPES) as con:
-            cur = con.cursor()
-            res = cur.execute("SELECT log_datetime, rowid FROM MINECRAFT_SERVER_LOGS_LOGGED_IN WHERE player = ? AND source_id = ? ORDER BY log_datetime", [player, source_id])
-            for row in res.fetchall():
-                login_times.append((row[0], row[1], "MINECRAFT_SERVER_LOGS_LOGGED_IN"))
-            cur.close()
-
-        left_times = list()
-        with sqlite3.connect(database=database, detect_types=sqlite3.PARSE_DECLTYPES) as con:
-            cur = con.cursor()
-            res = cur.execute("SELECT log_datetime, rowid FROM MINECRAFT_SERVER_LOGS_LEFT_GAME WHERE player = ? AND source_id = ? ORDER BY log_datetime", (player, source_id))
-            for row in res.fetchall():
-                left_times.append((row[0], row[1], "MINECRAFT_SERVER_LOGS_LEFT_GAME"))
-            cur.close()
-
-        with sqlite3.connect(database=database, detect_types=sqlite3.PARSE_DECLTYPES) as con:
-            cur = con.cursor()
-            res = cur.execute("SELECT log_datetime, rowid FROM MINECRAFT_SERVER_CRASH_REPORTS_PLAYER_DETAILS WHERE player_name = ? AND source_id = ? ORDER BY log_datetime", (player, source_id))
-            for row in res.fetchall():
-                left_times.append((row[0], row[1], "MINECRAFT_SERVER_CRASH_REPORTS_PLAYER_DETAILS"))
-            cur.close()
-
-        left_times = sorted(left_times, key=lambda x: x[0])
-
-        with sqlite3.connect(database=database) as con:
-            con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_SESSION(source_id, player, left_id, login_id, left_time timestamp, login_time timestamp, duration)")
-            con.commit()
-            print(f"For {player}, found {len(login_times)} login time(s), {len(left_times)} left time(s)")
-            for (login_time, login_id, login_type), (left_time, left_id, left_type) in zip(login_times, left_times):
-                duration: datetime.timedelta = left_time - login_time
-                if duration.total_seconds() > 14400:
-                    continue
-                con.execute(
-                    "INSERT INTO MINECRAFT_SERVER_SESSION VALUES(?, ?, ?, ?, ?, ?, ?)", (
-                        source_id, 
-                        player, 
-                        left_id,
-                        login_id,
-                        left_time, 
-                        login_time, 
-                        str(duration),
+            source_id, rowid, log_datetime, table_type, event_type, player = row
+            if event_type == "joined":
+                cur_player, login_id, login_time, login_type = player, rowid, log_datetime, table_type
+            elif event_type == "left":
+                if player == cur_player:
+                    duration: datetime.timedelta = log_datetime - login_time
+                    params = (
+                        source_id, # source_id
+                        player, # player
+                        rowid, # left_id
+                        login_id, # login_id
+                        log_datetime, # left_time
+                        login_time, # login_time
+                        table_type, # left_type
+                        login_type, # login_type
+                        duration.total_seconds(),
                     )
-                )
-                con.commit()
+                    cur.execute("INSERT INTO MINECRAFT_SERVER_SESSIONS VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)", params)
+                    con.commit()
+                cur_player, login_id, login_time, login_type = None, None, None, None
 
 def create_parser():
     parser = argparse.ArgumentParser(
@@ -480,7 +490,7 @@ def main(args=None, namespace=None):
         parse_usercache, 
         parse_server_properties, 
         parse_logs,
-        # parse_sessions,
+        parse_sessions,
     ]:
         parse(database=database, input_path=input_path, source_id=source_id)
 

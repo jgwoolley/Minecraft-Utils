@@ -46,6 +46,18 @@ LEFT JOIN MINECRAFT_SERVER_REGIONS ON
 ;
 ```
 
+``` sql
+SELECT
+	MINECRAFT_SERVER_SESSIONS.player, 
+	SUM(MINECRAFT_SERVER_SESSIONS.duration) as duration
+FROM
+	MINECRAFT_SERVER_SESSIONS
+GROUP BY 
+	MINECRAFT_SERVER_SESSIONS.source_id, 
+	MINECRAFT_SERVER_SESSIONS.player
+ORDER BY duration DESC
+```
+
 ## TODO
 
 - LOGS_MOVED_TOO_QUICKLY has coordinates, but what do they mean??? They don't look like regular coords. Maybe chunk?
