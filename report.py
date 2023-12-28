@@ -38,7 +38,7 @@ def main():
             ''')
             for row in result:
                 duration = datetime.timedelta(seconds=float(row[2]))
-                file.write(f"<li>{row[1]}: {duration}</li>\n")
+                file.write(f"<li title=\"{row[2]} seconds\">{row[1]}: {duration}</li>\n")
 
             file.write('''
                 <ol>  
