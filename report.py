@@ -4,7 +4,9 @@ sessions_select_sql = '''
 SELECT
 	source_id,
 	MINECRAFT_SERVER_SESSIONS.player, 
-	SUM(MINECRAFT_SERVER_SESSIONS.duration) as duration
+	SUM(MINECRAFT_SERVER_SESSIONS.duration) as duration,
+	MAX(MINECRAFT_SERVER_SESSIONS.left_time) as left_time,
+	MIN(MINECRAFT_SERVER_SESSIONS.login_time) as login_time
 FROM
 	MINECRAFT_SERVER_SESSIONS
 WHERE source_id = (
@@ -14,6 +16,23 @@ GROUP BY
 	MINECRAFT_SERVER_SESSIONS.player
 ORDER BY duration DESC
 '''
+
+def format_seconds(total_seconds: float):
+    days, remainder = divmod(total_seconds, 86400)
+    hours, seconds = divmod(remainder, 3600)
+
+    result = ""
+    if days == 1:
+        result+=f"{int(days)} day"
+    else:
+        result+=f"{int(days)} days"
+
+    if hours == 1:
+        result+=f" {int(hours)} hour"
+    elif hours > 1:
+        result+=f" {int(hours)} hours"
+
+    return result
 
 def main():
     database = "results.db"
@@ -34,14 +53,33 @@ def main():
             <body>
                 <main>
                     <h1>Welcome to Minecraft-Utils</h1>
-                    <ol>
+                    <h3>Login Times</h3>
+                    <table border=1 frame=BOX rules=all>
+                        <tr>
+                            <th>Player</th>
+                            <th>Total Play Time</th>
+                            <th>First Login</th>
+                            <th>Last Login</th>
+                            <th>Days Since First Login</th>
+                        </tr>
             ''')
             for row in result:
-                duration = datetime.timedelta(seconds=float(row[2]))
-                file.write(f"<li title=\"{row[2]} seconds\">{row[1]}: {duration}</li>\n")
+                source_id, player, duration, left_time, login_time = row
+                duration = float(duration)
+                left_time = datetime.datetime.fromisoformat(left_time)
+                login_time = datetime.datetime.fromisoformat(login_time)
+                seconds_since_first = (left_time - login_time).total_seconds()
 
+                file.write("<tr>")
+                file.write(f"<td>{player}</td>\n")
+                file.write(f"<td title=\"{duration} seconds\">{format_seconds(duration)}</td>\n")
+                file.write(f"<td title=\"{login_time}\">{login_time:%Y-%m-%d}</td>\n")
+                file.write(f"<td title=\"{left_time}\">{left_time:%Y-%m-%d}</td>\n")
+                file.write(f"<td title=\"{seconds_since_first} seconds\">{format_seconds(seconds_since_first)}</td>\n")
+                file.write("</tr>\n")
+            
             file.write('''
-                <ol>  
+                        </table>  
                     </main>
                 </body>
             </html>

@@ -60,7 +60,7 @@ class RegionCoordinate:
         coords = self.getMaxChunk()
         return coords.getMaxBlock()
 
-class Parser:
+class LogParser:
     def __init__(self, name: str, pattern: str, create_sql: str, insert_sql: str):
         self.name = name
         self.pattern = re.compile(pattern)
@@ -78,44 +78,47 @@ class Parser:
         cur = con.cursor()
         return cur.execute(self.create_sql)
 
+class WorldParser:
+    ...
+
 parsers = [
-    Parser(
+    LogParser(
         name='logged_in',
         pattern='(?P<player>.+)\[\/(?P<ip>\d+\.\d+.\d+.\d+):(?P<port>\d+)\] logged in with entity id (?P<entityid>\d+) at \((?P<x>-?\d+.\d+), (?P<y>-?\d+.\d+), (?P<z>-?\d+.\d+)\)',
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LOGGED_IN(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level, player, ip, port, entityid, x, y, z)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_LOGGED_IN VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    Parser(
+    LogParser(
         name='joined_game',
         pattern='(?P<player>.+) joined the game',
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_JOINED_GAME(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level, player)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_JOINED_GAME VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    Parser(
+    LogParser(
         name='left_game',
         pattern='(?P<player>.+) left the game',
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LEFT_GAME(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level, player)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_LEFT_GAME VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    Parser(
+    LogParser(
         name='lost_connection',
         pattern='(?P<player>.+) lost connection: Disconnected',
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_LOST_CONNECTION(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level, player)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_LOST_CONNECTION VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    Parser(
+    LogParser(
         name='uuid_player',
         pattern='UUID of player (?P<player>.+) is (?P<uuid>[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12})',
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_UUID_PLAYER(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level, player, uuid)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_UUID_PLAYER VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    Parser(
+    LogParser(
         name='moved_quickly',
         pattern='(?P<player>.+) moved too quickly! (?P<x>-?\d+.\d+),(?P<y>-?\d+.\d+),(?P<z>-?\d+.\d+)',
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_MOVED_TOO_QUICKLY(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level, player, x, y, z)",
         insert_sql="INSERT INTO MINECRAFT_SERVER_LOGS_MOVED_TOO_QUICKLY VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    Parser(
+    LogParser(
         name="crash_report_saved",
         pattern="This crash report has been saved to:",
         create_sql="CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_LOGS_CRASH_REPORT_SAVED(source_id, file_id, log_path, line, end_line, log_datetime timestamp, level)",
@@ -156,6 +159,8 @@ def calculate_hash(path: pathlib.Path, buffer_size: int = 32768):
 
 def write_file_info(database: Union[bytes, Text], path: pathlib.Path, source_id: int, buffer_size: int = 32768):
     md5, sha1 = calculate_hash(path=path, buffer_size=buffer_size)
+    
+    # TODO: Split time stats into FILE_INFO_JOIN_SOURCE_INFO
     stat = path.stat()
 
     with sqlite3.connect(database=database) as con:
@@ -332,13 +337,19 @@ def parse_region(database: Union[bytes, Text], path: pathlib.Path, source_id: in
 def parse_regions(database: Union[bytes, Text], world_path: pathlib.Path, source_id: int):
     region_path = world_path / 'region'
 
+    print(f"Parsing {region_path}")
     with sqlite3.connect(database=database) as con:
         con.execute("CREATE TABLE IF NOT EXISTS MINECRAFT_SERVER_REGIONS(source_id, file_id, path TEXT, region_x INTEGER, region_z INTEGER, min_x INTEGER, min_y INTEGER, min_z INTEGER, max_x INTEGER, max_y INTEGER, max_z INTEGER)")
         con.commit()
 
-    print(f"Parsing {region_path}")
     for path in region_path.iterdir():
         parse_region(database=database, path=path, source_id=source_id)
+
+def parse_stats(database: Union[bytes, Text], world_path: pathlib.Path, source_id: int):
+    stats_path = world_path / 'stats'
+    print(f"Parsing {stats_path}")
+    for path in stats_path.iterdir():
+        ...
 
 def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     path = input_path / 'server.properties'
@@ -369,7 +380,11 @@ def parse_server_properties(database: Union[bytes, Text], input_path: pathlib.Pa
         con.commit()
 
     world_path = input_path / level_name
-    parse_regions(database=database, world_path=world_path, source_id=source_id)
+
+    for parse in [
+        parse_regions
+    ]:
+        parse(database=database, world_path=world_path, source_id=source_id)
 
 def parse_logs(database: Union[bytes, Text], input_path: pathlib.Path, source_id: int):
     with sqlite3.connect(database=database) as con:
@@ -435,6 +450,7 @@ def parse_crash_reports(database: Union[bytes, Text], input_path: pathlib.Path, 
                         params = (
                             source_id, 
                             file_id, 
+                            #TODO: Remove paths, file_id will do
                             str(crash_report_path), # path 
                             log_datetime, # log_datetime
                             line,        
@@ -462,6 +478,7 @@ SELECT
 	player
 FROM
 	MINECRAFT_SERVER_LOGS_LOGGED_IN
+WHERE source_id = ?
 UNION
 SELECT
     source_id,
@@ -472,6 +489,7 @@ SELECT
 	player
 FROM
 	MINECRAFT_SERVER_LOGS_LEFT_GAME
+WHERE source_id = ?
 UNION
 SELECT
     source_id,
@@ -498,7 +516,7 @@ def parse_sessions(database: Union[bytes, Text], input_path: pathlib.Path, sourc
 
         cur_player, login_id, login_time, login_type = None, None, None, None
 
-        res = cur.execute(SESSION_SELECT_SQL, [source_id])
+        res = cur.execute(SESSION_SELECT_SQL, [source_id, source_id, source_id])
         for row in res.fetchall():
             source_id, rowid, log_datetime, table_type, event_type, player = row
             if event_type == "joined":
